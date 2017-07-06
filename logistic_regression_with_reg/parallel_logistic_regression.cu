@@ -216,7 +216,7 @@ void updateweight (double *params, double *sumgradvec, int m, int d, float alpha
 }
 
 
-#define num_iterations 1
+#define num_iterations 2
 # include<time.h>
 
 int main(){
@@ -336,10 +336,10 @@ int main(){
 
 
 	 	//Print current learned weights
-		/*for (int j=0; j<d; j++){
+		for (int j=0; j<d; j++){
          		printf("%lf \t", params[j]); }
          	printf("\n");
-		*/
+		
          
  		// Copy in the updated weights back to GPU
 		start = clock();

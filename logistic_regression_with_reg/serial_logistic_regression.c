@@ -44,9 +44,9 @@ void map(int m, double *xs, double *ys, double *params, double *gradvec, int d){
 
                 double h = 1.0/ (1.0 + exp(-accum));
 
-                //gradvec[index*d+0] =  (h - ys[index]) * 1;
+                gradvec[index*d+0] =  (h - ys[index]) * 1;
 		
-                for (int j = 0; j < d; j++){
+                for (int j = 1; j < d; j++){
                         // gradvec[index*d+j] =  (h - ys[index]) * xs[index*d+j];
                         gradvec[j] +=  (h - ys[index]) * xs[index*d+j];
                 }
