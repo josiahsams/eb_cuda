@@ -5,7 +5,7 @@
 #include <curand_kernel.h>
 #include <assert.h>
 #define square(x) x*x
-
+#include <float.h>
 
 __device__ inline double atomicAddDouble(double *address, double val) {
   unsigned long long int *address_as_ull = (unsigned long long int *)address;
@@ -25,24 +25,24 @@ __device__ inline double atomicAddDouble(double *address, double val) {
 
  
 
-__global__ void map(int n, double *xs, double *c, int k, int *s0, int *cluster_index, int d){ //xs indicates datapoints, c indicates centroids, k indicates no. of clusters
+__global__ void getClusterCentroids(int n, double *xs, double *c, int k, int *s0, int *cluster_index, int d){ //xs indicates datapoints, c indicates centroids, k indicates no. of clusters
         
         int index = blockIdx.x * blockDim.x + threadIdx.x;
 
         if (index<n){
                 double dist;
-                double prevBest = 10000000000.0;
+                double prevBest = DBL_MAX;
                 int centroidIndex = 0;
                 
-                for (int j1 = 0; j1 < k; j1++) {
+                for (int clust = 0; clust < k; clust++) {
 			dist = 0.0;
-                	for (int j=0; j<d; j++){
-                        	dist += ((xs[index*d + j]) - (c[j1*d+j])) * ((xs[index*d + j]) - (c[j1*d+j]));
+                	for (int dim=0; dim<d; dim++){
+                        	dist += ((xs[index*d + dim]) - (c[clust*d+dim])) * ((xs[index*d + dim]) - (c[clust*d+dim]));
 				
 			}
 			      
 			if (dist<prevBest) {
-			      prevBest = dist; centroidIndex = j1; 
+			      prevBest = dist; centroidIndex = clust; 
 			}
 			
                 }
@@ -55,7 +55,7 @@ __global__ void map(int n, double *xs, double *c, int k, int *s0, int *cluster_i
 
 
 
-__global__ void map2(int n, double *xs, double *c, int k, int *cluster_index, int *intermediates0, double *intermediates1, double *intermediates2, int d){
+__global__ void calculateIntermediates(int n, double *xs, double *c, int k, int *cluster_index, int *intermediates0, double *intermediates1, double *intermediates2, int d){
      int blocksize = n / 450 + 1;
      int start = blockIdx.x * blocksize;
      int end1 = start + blocksize;
@@ -65,21 +65,21 @@ __global__ void map2(int n, double *xs, double *c, int k, int *cluster_index, in
 
 		if (end > n ) return;
 		// loop for every K 
-		for (int i = threadIdx.y; i < k; i+= blockDim.y){
+		for (int clust = threadIdx.y; clust < k; clust+= blockDim.y){
 			// loop for every dimension(features)
-			for (int j = threadIdx.x; j < d; j+= blockDim.x) {
+			for (int dim = threadIdx.x; dim < d; dim+= blockDim.x) {
 
 				// Calculate intermediate S0
 				// for counts we don't have dimensions
-				if (j ==0) {
+				if (dim ==0) {
 					int count = 0;
 					for(int z=start; z<end; z++)
 					{
-						if(cluster_index[z] == i) {
+						if(cluster_index[z] == clust) {
 						count ++;
 						}
 					}
-					intermediates0[blockIdx.x*k+i] = count;
+					intermediates0[blockIdx.x*k+clust] = count;
 				}
 
 				// Calculate intermediate S1 and S2
@@ -87,14 +87,14 @@ __global__ void map2(int n, double *xs, double *c, int k, int *cluster_index, in
 				double sum2 = 0.0;
                                 int idx ;
 				for (int z=start; z<end; z++) {
-					if(cluster_index[z] == i) {
-                                                idx = z * d + j;
+					if(cluster_index[z] == clust) {
+                                                idx = z * d + dim;
 						sum1 += xs[idx];
 						sum2 += xs[idx] * xs[idx];
 
 					}
 				}
-				int index = (blockIdx.x*k*d + i*d + j);
+				int index = (blockIdx.x*k*d + clust*d + dim);
                            	intermediates1[index] = sum1;
 				intermediates2[index] = sum2;
 			}
@@ -103,26 +103,26 @@ __global__ void map2(int n, double *xs, double *c, int k, int *cluster_index, in
 
 
 
-__global__ void map3(int n, double *xs, double *c, int k, int *cluster_index, int *intermediates0, double *intermediates1, double *intermediates2, int *s0, double *s1, double *s2, int d){		// Only block is invoked.		
+__global__ void calculateFinal(int n, double *xs, double *c, int k, int *cluster_index, int *intermediates0, double *intermediates1, double *intermediates2, int *s0, double *s1, double *s2, int d){		// Only block is invoked.		
 
-	// loop for every K 
-	for (int i = threadIdx.y; i < k; i+= blockDim.y){
+		// loop for every K 
+	for (int clust = threadIdx.y; clust < k; clust+= blockDim.y){
 		// loop for every dimension(features)
-		for (int j = threadIdx.x; j < d; j+= blockDim.x) {
+		for (int dim = threadIdx.x; dim < d; dim+= blockDim.x) {
 
 			// Calculate  S0
 			// for counts we don't have dimensions
-			if (j == 0) {
+			if (dim == 0) {
 				//count = 0;
-				for(int z = i; z < 450*k; z+=k){
+				for(int z = clust; z < 450*k; z+=k){
 					{
-						s0[i] += intermediates0[z];
+						s0[clust] += intermediates0[z];
 					}
 				}
 			}	
 
 			// Calculate S1 and S2
-            		int start = i * d + j;
+            		int start = clust * d + dim;
             		int kd    = k * d;
             		double *s1end = &intermediates1[450 * kd];
             		double *s1cur = &intermediates1[start];
@@ -336,7 +336,7 @@ int main(int argc, char *argv[]){
           	start = clock();
 		cudaMemset((void*)s0, 0, size4);
                 //Compute hypothesis function and element-wise gradients
-                map<<<2,100>>>(n, gpu_xs, c, k, s0, cluster_index, d);
+                getClusterCentroids<<<2,100>>>(n, gpu_xs, c, k, s0, cluster_index, d);
 
 
                 //Copy the element wise gradients from GPU to CPU
@@ -350,13 +350,13 @@ int main(int argc, char *argv[]){
 		cudaMemset((void*)intermediates2, 0, size9);
 	
 		dim3 nthreads(d,k);
-		map2<<<450,nthreads>>>(n, gpu_xs, c, k, cluster_index, intermediates0, intermediates1, intermediates2, d);		
+		calculateIntermediates<<<450,nthreads>>>(n, gpu_xs, c, k, cluster_index, intermediates0, intermediates1, intermediates2, d);		
 
 		cudaMemcpy(intermediates1_host, intermediates1, size5, cudaMemcpyDeviceToHost);
 
 		
 		dim3 nthreads1(d,k);
-		map3<<<1,nthreads1>>>(n, gpu_xs, c, k, cluster_index, intermediates0, intermediates1, intermediates2, s0, s1, s2, d);
+		calculateFinal<<<1,nthreads1>>>(n, gpu_xs, c, k, cluster_index, intermediates0, intermediates1, intermediates2, s0, s1, s2, d);
 		
 		cudaMemcpy(s0_host, s0, size4, cudaMemcpyDeviceToHost);
 	
