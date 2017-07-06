@@ -1,0 +1,21 @@
+1. The file kmeans_data contains the data we have used to test our implementation of parallelized kmeans algorithm. It contains data generated in a randomized fashion and we follow the data generation method from an example from the Matlab documentation for kmeans. The corresponding Matlab code is as follows:
+
+	X = [randn(100,2)*0.75+ones(100,2);
+    	randn(100,2)*0.5-ones(100,2)];
+
+
+2. The file kmeans_new.cu contains the CUDA C code for parallelized version of Lloyd's kmeans algorithm. Euclidean distance between points is considered as the metric for cluster identification in our study. It consists of 3 kernel functions and 2 cpu functions. The kernel function map1 assigns cluster indices to each point in the dataset. The kernel function map2 computes s0(number of elements in each cluster), s1(featurewise sum of elements in every cluster) and s2(featurewise squared sum of elements in every cluster) blockwise. We use 450 number of blocks as default. The code works even when dataset size is less than 450. The kernel function accumulates the s0, s1 and s2 values computed blockwise for very cluster by map2 into a single block.
+
+The first cpu function calculate_centroids calculates the new centroids in every iteration and the next cpu function calculate_cost claculates the cost of the entire system, i.e. the sum ofeuclidean distances of all points within a cluster from the corresponding cluster centroids, summed up over all the clusters.
+
+In order to run the file kmeans_new.cu, we need to type the following command in the cuda terminal(CUDA version >=3.0) with arg1 = number of samples, arg2 = number of features, arg3 = number of clusters, arg4 = number of iterations we intend the kmeans algorithm to run for:	
+	 nvcc -arch=sm_35 kmeans_new.cu -o kmeans_new.out arg1 arg2 arg3 arg4
+
+To get the outputs, type the following in the terminal:
+	 ./kmeans_new.out
+
+
+3. The file kmeans.c contains CPU code for Lloyd's kmeans algorithm. It can be used to compare the performance of the CPU and the parallelized CUDA versions of the kmeans algorithm.
+
+
+
